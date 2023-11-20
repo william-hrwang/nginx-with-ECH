@@ -39,6 +39,9 @@
 #include <openssl/rand.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
+#ifdef SSL_R_ECH_REJECTED
+#include <openssl/hpke.h>
+#endif
 
 #define NGX_SSL_NAME     "OpenSSL"
 
@@ -88,6 +91,9 @@ typedef struct ngx_ssl_ocsp_s  ngx_ssl_ocsp_t;
 
 struct ngx_ssl_s {
     SSL_CTX                    *ctx;
+#ifdef SSL_R_ECH_REJECTED
+    SSL_ECH_KEYS               *ech_keys;
+#endif
     ngx_log_t                  *log;
     size_t                      buffer_size;
 };
@@ -174,6 +180,16 @@ typedef struct {
 } ngx_ssl_session_cache_t;
 
 
+#ifdef SSL_R_ECH_REJECTED
+typedef struct {
+    ngx_str_t                       public_name;
+    ngx_uint_t                      config_id;
+    ngx_str_t                       ech_key;
+    ngx_flag_t                      noretry;
+} ngx_ssl_ech_conf_t;
+#endif
+
+
 #define NGX_SSL_SSLv2    0x0002
 #define NGX_SSL_SSLv3    0x0004
 #define NGX_SSL_TLSv1    0x0008
@@ -191,6 +207,14 @@ typedef struct {
 ngx_int_t ngx_ssl_init(ngx_log_t *log);
 ngx_int_t ngx_ssl_create(ngx_ssl_t *ssl, ngx_uint_t protocols, void *data);
 
+#ifdef SSL_R_ECH_REJECTED
+ngx_int_t ngx_ssl_ech(ngx_conf_t *cf, ngx_array_t **ech_configs,
+    ngx_str_t *value);
+ngx_int_t ngx_ssl_attach_ech(ngx_conf_t *cf, ngx_array_t *port_ech_configs,
+    ngx_array_t *server_names, ngx_array_t *ssls, ngx_ssl_t *default_ssl);
+ngx_int_t ngx_ssl_prepare_ech(ngx_conf_t *cf, ngx_array_t *ech_configs,
+    ngx_array_t *passwords);
+#endif
 ngx_int_t ngx_ssl_certificates(ngx_conf_t *cf, ngx_ssl_t *ssl,
     ngx_array_t *certs, ngx_array_t *keys, ngx_array_t *passwords);
 ngx_int_t ngx_ssl_certificate(ngx_conf_t *cf, ngx_ssl_t *ssl,
@@ -307,6 +331,10 @@ ngx_int_t ngx_ssl_get_client_v_end(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
 ngx_int_t ngx_ssl_get_client_v_remain(ngx_connection_t *c, ngx_pool_t *pool,
     ngx_str_t *s);
+ngx_int_t ngx_ssl_ech_negotiated(ngx_connection_t *c, ngx_pool_t *pool,
+    ngx_str_t *s);
+ngx_int_t ngx_ssl_ech_config(ngx_connection_t *c, ngx_pool_t *pool,
+    ngx_str_t *s);
 
 
 ngx_int_t ngx_ssl_handshake(ngx_connection_t *c);
@@ -334,6 +362,9 @@ extern int  ngx_ssl_certificate_index;
 extern int  ngx_ssl_next_certificate_index;
 extern int  ngx_ssl_certificate_name_index;
 extern int  ngx_ssl_stapling_index;
+#ifdef SSL_R_ECH_REJECTED
+extern int  ngx_ssl_ech_index;
+#endif
 
 
 #endif /* _NGX_EVENT_OPENSSL_H_INCLUDED_ */

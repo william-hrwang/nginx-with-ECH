@@ -49,6 +49,8 @@ static char *ngx_http_ssl_session_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
 static char *ngx_http_ssl_ocsp_cache(ngx_conf_t *cf, ngx_command_t *cmd,
     void *conf);
+static char *ngx_http_ssl_ech(ngx_conf_t *cf, ngx_command_t *cmd,
+    void *conf);
 
 static char *ngx_http_ssl_conf_command_check(ngx_conf_t *cf, void *post,
     void *data);
@@ -290,6 +292,14 @@ static ngx_command_t  ngx_http_ssl_commands[] = {
       offsetof(ngx_http_ssl_srv_conf_t, reject_handshake),
       NULL },
 
+    { ngx_string("ssl_ech"),
+      NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_CONF_TAKE2|NGX_CONF_TAKE3|
+      NGX_CONF_TAKE4,
+      ngx_http_ssl_ech,
+      NGX_HTTP_SRV_CONF_OFFSET,
+      0,
+      NULL },
+
       ngx_null_command
 };
 
@@ -398,6 +408,12 @@ static ngx_http_variable_t  ngx_http_ssl_vars[] = {
 
     { ngx_string("ssl_client_v_remain"), NULL, ngx_http_ssl_variable,
       (uintptr_t) ngx_ssl_get_client_v_remain, NGX_HTTP_VAR_CHANGEABLE, 0 },
+
+    { ngx_string("ssl_ech"), NULL, ngx_http_ssl_variable,
+      (uintptr_t) ngx_ssl_ech_negotiated, NGX_HTTP_VAR_CHANGEABLE, 0 },
+
+    { ngx_string("ssl_ech_config"), NULL, ngx_http_ssl_variable,
+      (uintptr_t) ngx_ssl_ech_config, NGX_HTTP_VAR_CHANGEABLE, 0 },
 
       ngx_http_null_variable
 };
@@ -629,6 +645,9 @@ ngx_http_ssl_create_srv_conf(ngx_conf_t *cf)
     sscf->ocsp_cache_zone = NGX_CONF_UNSET_PTR;
     sscf->stapling = NGX_CONF_UNSET;
     sscf->stapling_verify = NGX_CONF_UNSET;
+#ifdef SSL_R_ECH_REJECTED
+    sscf->ech_configs = NGX_CONF_UNSET_PTR;
+#endif
 
     return sscf;
 }
@@ -693,6 +712,9 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_str_value(conf->stapling_file, prev->stapling_file, "");
     ngx_conf_merge_str_value(conf->stapling_responder,
                          prev->stapling_responder, "");
+#ifdef SSL_R_ECH_REJECTED
+    ngx_conf_merge_ptr_value(conf->ech_configs, prev->ech_configs, NULL);
+#endif
 
     conf->ssl.log = cf->log;
 
@@ -885,6 +907,12 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     if (ngx_ssl_early_data(cf, &conf->ssl, conf->early_data) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
+
+#ifdef SSL_R_ECH_REJECTED
+    if (conf->ech_configs && ngx_ssl_prepare_ech(cf, conf->ech_configs, conf->passwords) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+#endif
 
     if (ngx_ssl_conf_commands(cf, &conf->ssl, conf->conf_commands) != NGX_OK) {
         return NGX_CONF_ERROR;
@@ -1207,6 +1235,23 @@ ngx_http_ssl_conf_command_check(ngx_conf_t *cf, void *post, void *data)
 }
 
 
+static char *
+ngx_http_ssl_ech(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+#ifndef SSL_R_ECH_REJECTED
+    return "is not supported on this platform";
+#else
+    ngx_http_ssl_srv_conf_t *sscf = conf;
+
+    if (ngx_ssl_ech(cf, &sscf->ech_configs, cf->args->elts) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+#endif
+}
+
+
 static ngx_int_t
 ngx_http_ssl_init(ngx_conf_t *cf)
 {
@@ -1218,6 +1263,13 @@ ngx_http_ssl_init(ngx_conf_t *cf)
     ngx_http_core_loc_conf_t    *clcf;
     ngx_http_core_srv_conf_t   **cscfp, *cscf;
     ngx_http_core_main_conf_t   *cmcf;
+#ifdef SSL_R_ECH_REJECTED
+    ngx_array_t                **ech_config, *ech_configs, *server_names, *ssls;
+    ngx_str_t                  **server_name;
+    ngx_http_core_srv_conf_t    *cscf2;
+    ngx_http_ssl_srv_conf_t     *sscf2;
+    ngx_ssl_t                  **ssl;
+#endif
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
     cscfp = cmcf->servers.elts;
@@ -1280,6 +1332,43 @@ ngx_http_ssl_init(ngx_conf_t *cf)
 
             cscf = addr[a].default_server;
             sscf = cscf->ctx->srv_conf[ngx_http_ssl_module.ctx_index];
+            cscfp = addr[a].servers.elts;
+
+#ifdef SSL_R_ECH_REJECTED
+            ech_configs = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_array_t *));
+            server_names = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_str_t *));
+            ssls = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_ssl_t *));
+            for (s = 0; s < addr[a].servers.nelts; s++) {
+                cscf2 = cscfp[s];
+                sscf2 = cscf2->ctx->srv_conf[ngx_http_ssl_module.ctx_index];
+                if (!(sscf2->protocols & NGX_SSL_TLSv1_3)) {
+                    ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+                                  "ECH requires \"ssl_protocols\" to include TLSv1.3 for "
+                                  "server %V", &cscf2->server_name);
+                    return NGX_ERROR;
+                }
+                ech_config = ngx_array_push(ech_configs);
+                if (ech_config == NULL) {
+                    return NGX_ERROR;
+                }
+                *ech_config = sscf2->ech_configs;
+                server_name = ngx_array_push(server_names);
+                if (server_name == NULL) {
+                    return NGX_ERROR;
+                }
+                *server_name = &cscf2->server_name;
+                ssl = ngx_array_push(ssls);
+                if (ssl == NULL) {
+                    return NGX_ERROR;
+                }
+                *ssl = &sscf2->ssl;
+            }
+            if (ngx_ssl_attach_ech(cf, ech_configs, server_names, ssls, &sscf->ssl) != NGX_OK) {
+                return NGX_ERROR;
+            }
+            ngx_array_destroy(ech_configs);
+            ngx_array_destroy(server_names);
+#endif
 
             if (sscf->certificates) {
 
@@ -1307,7 +1396,6 @@ ngx_http_ssl_init(ngx_conf_t *cf)
              * check all non-default server blocks
              */
 
-            cscfp = addr[a].servers.elts;
             for (s = 0; s < addr[a].servers.nelts; s++) {
 
                 cscf = cscfp[s];

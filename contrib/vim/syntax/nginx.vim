@@ -587,6 +587,7 @@ syn keyword ngxDirective contained ssl_crl
 syn keyword ngxDirective contained ssl_dhparam
 syn keyword ngxDirective contained ssl_early_data
 syn keyword ngxDirective contained ssl_ecdh_curve
+syn keyword ngxDirective contained ssl_ech
 syn keyword ngxDirective contained ssl_engine
 syn keyword ngxDirective contained ssl_handshake_timeout
 syn keyword ngxDirective contained ssl_ocsp

@@ -62,6 +62,10 @@ typedef struct {
     ngx_flag_t                      stapling_verify;
     ngx_str_t                       stapling_file;
     ngx_str_t                       stapling_responder;
+
+#ifdef SSL_R_ECH_REJECTED
+    ngx_array_t                    *ech_configs;
+#endif
 } ngx_http_ssl_srv_conf_t;
 
 
