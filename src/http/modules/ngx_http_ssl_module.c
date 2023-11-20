@@ -909,7 +909,9 @@ ngx_http_ssl_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
     }
 
 #ifdef SSL_R_ECH_REJECTED
-    if (conf->ech_configs && ngx_ssl_prepare_ech(cf, conf->ech_configs, conf->passwords) != NGX_OK) {
+    if (conf->ech_configs &&
+        ngx_ssl_prepare_ech(cf, conf->ech_configs,
+            conf->passwords) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 #endif
@@ -1264,7 +1266,8 @@ ngx_http_ssl_init(ngx_conf_t *cf)
     ngx_http_core_srv_conf_t   **cscfp, *cscf;
     ngx_http_core_main_conf_t   *cmcf;
 #ifdef SSL_R_ECH_REJECTED
-    ngx_array_t                **ech_config, *ech_configs, *server_names, *ssls;
+    ngx_array_t                **ech_config, *ech_configs,
+                                *server_names, *ssls;
     ngx_str_t                  **server_name;
     ngx_http_core_srv_conf_t    *cscf2;
     ngx_http_ssl_srv_conf_t     *sscf2;
@@ -1335,16 +1338,19 @@ ngx_http_ssl_init(ngx_conf_t *cf)
             cscfp = addr[a].servers.elts;
 
 #ifdef SSL_R_ECH_REJECTED
-            ech_configs = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_array_t *));
-            server_names = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_str_t *));
-            ssls = ngx_array_create(cf->temp_pool, addr[a].servers.nelts, sizeof(ngx_ssl_t *));
+            ech_configs = ngx_array_create(cf->temp_pool,
+                addr[a].servers.nelts, sizeof(ngx_array_t *));
+            server_names = ngx_array_create(cf->temp_pool,
+                addr[a].servers.nelts, sizeof(ngx_str_t *));
+            ssls = ngx_array_create(cf->temp_pool,
+                addr[a].servers.nelts, sizeof(ngx_ssl_t *));
             for (s = 0; s < addr[a].servers.nelts; s++) {
                 cscf2 = cscfp[s];
                 sscf2 = cscf2->ctx->srv_conf[ngx_http_ssl_module.ctx_index];
                 if (!(sscf2->protocols & NGX_SSL_TLSv1_3)) {
                     ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
-                                  "ECH requires \"ssl_protocols\" to include TLSv1.3 for "
-                                  "server %V", &cscf2->server_name);
+                        "ECH requires \"ssl_protocols\" to include TLSv1.3"
+                        " for server %V", &cscf2->server_name);
                     return NGX_ERROR;
                 }
                 ech_config = ngx_array_push(ech_configs);
@@ -1363,7 +1369,8 @@ ngx_http_ssl_init(ngx_conf_t *cf)
                 }
                 *ssl = &sscf2->ssl;
             }
-            if (ngx_ssl_attach_ech(cf, ech_configs, server_names, ssls, &sscf->ssl) != NGX_OK) {
+            if (ngx_ssl_attach_ech(cf, ech_configs,
+                server_names, ssls, &sscf->ssl) != NGX_OK) {
                 return NGX_ERROR;
             }
             ngx_array_destroy(ech_configs);
