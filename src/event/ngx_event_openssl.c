@@ -1415,7 +1415,8 @@ ngx_ssl_info_callback(const ngx_ssl_conn_t *ssl_conn, int where, int ret)
     BIO               *rbio, *wbio;
     ngx_connection_t  *c;
 
-#ifndef SSL_OP_NO_RENEGOTIATION
+#if (!defined SSL_OP_NO_RENEGOTIATION                                         \
+     && !defined SSL_OP_NO_CLIENT_RENEGOTIATION)
 
     if ((where & SSL_CB_HANDSHAKE_START)
         && SSL_is_server((ngx_ssl_conn_t *) ssl_conn))
@@ -2148,17 +2149,16 @@ ngx_ssl_handshake(ngx_connection_t *c)
         c->read->ready = 1;
         c->write->ready = 1;
 
-#ifndef SSL_OP_NO_RENEGOTIATION
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-#ifdef SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS
+#if (!defined SSL_OP_NO_RENEGOTIATION                                         \
+     && !defined SSL_OP_NO_CLIENT_RENEGOTIATION                               \
+     && defined SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS                             \
+     && OPENSSL_VERSION_NUMBER < 0x10100000L)
 
         /* initial handshake done, disable renegotiation (CVE-2009-3555) */
         if (c->ssl->connection->s3 && SSL_is_server(c->ssl->connection)) {
             c->ssl->connection->s3->flags |= SSL3_FLAGS_NO_RENEGOTIATE_CIPHERS;
         }
 
-#endif
-#endif
 #endif
 
 #if (defined BIO_get_ktls_send && !NGX_WIN32)
@@ -2793,7 +2793,8 @@ ngx_ssl_handle_recv(ngx_connection_t *c, int n)
     int        sslerr;
     ngx_err_t  err;
 
-#ifndef SSL_OP_NO_RENEGOTIATION
+#if (!defined SSL_OP_NO_RENEGOTIATION                                         \
+     && !defined SSL_OP_NO_CLIENT_RENEGOTIATION)
 
     if (c->ssl->renegotiation) {
         /*
@@ -5501,6 +5502,9 @@ ngx_ssl_get_curves(ngx_connection_t *c, ngx_pool_t *pool, ngx_str_t *s)
     }
 
     curves = ngx_palloc(pool, n * sizeof(int));
+    if (curves == NULL) {
+        return NGX_ERROR;
+    }
 
     n = SSL_get1_curves(c->ssl->connection, curves);
     len = 0;
